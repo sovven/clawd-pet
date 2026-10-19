@@ -51,6 +51,8 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 Claude Code 的 hook 在你发消息、Claude 回完话时调用 `mood.ps1`，它把状态写进 `state.txt`；
 `clawd.ps1` 是一个透明、置顶的 WPF 小窗口，每隔一会儿读一次这个文件，换动作。
 
+同时开好几个 Claude 会话也没关系：`mood.ps1` 会记住哪些会话还在干活（`sessions.json`），**全部做完**才说「做好啦」。
+
 ---
 
 粉丝自制，与 Anthropic 无关。Clawd 形象归 Anthropic 所有。
