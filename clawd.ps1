@@ -238,8 +238,9 @@ function Frame {
       $fx.sweat = $true
     }
     'done' {
-      $isHappy = $true
       if ($age -lt 96) {
+        # ^ ^ eyes only while celebrating
+        $isHappy = $true
         # three hops, then settle
         $phase = $age % 32
         if ($phase -lt 14) { $hop = - [Math]::Sin($phase / 14 * [Math]::PI) * 14 }
@@ -259,7 +260,6 @@ function Frame {
   }
 
   $sx = 1; $sy = 1
-  if ($script:hover -and $s -ne 'sleep') { $isHappy = $true }
   # idle: a little happy wiggle now and then
   if ($s -eq 'idle') { $wg = $t % 220; if ($wg -lt 16) { $tilt = [Math]::Sin($wg / 16 * 4 * [Math]::PI) * 6 } }
   # squash when landing from a hop, stretch in the air
