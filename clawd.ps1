@@ -2,7 +2,7 @@
 # The clawd-pet mod writes "<state>`t<text>" to state.txt; this window polls it.
 # States: idle, working, done (idle and done fall asleep after a while). Drag to move, click to jump back to Claude, right-click to hide.
 # Hovering shows the text in a pixel bubble; done pops it up on its own.
-param([string]$StateFile = "$PSScriptRoot\state.txt", [int]$SleepAfter = 300)
+param([string]$StateFile = "$PSScriptRoot\state.txt", [int]$SleepAfter = 300, [int]$RemindAfter = 120, [string]$AppProcess = 'claude')
 
 $created = $false
 $mutex = New-Object System.Threading.Mutex($true, 'Global\ClawdPetWindow', [ref]$created)
@@ -18,6 +18,8 @@ public static class ClawdWin {
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
   [StructLayout(LayoutKind.Sequential)] public struct PT { public int X; public int Y; }
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out PT p);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
 }
 '@
 
@@ -170,7 +172,7 @@ function Build-Bubble($text) {
 
 # State
 $script:state = 'idle'; $script:text = ''; $script:stamp = $null; $script:t = 0; $script:since = 0
-$script:asleep = $false; $script:tuck = 0; $script:readAt = 0; $script:hover = $false; $script:active = 0; $script:wakeAt = -100; $script:shownAt = -1; $script:hideAt = -1; $script:shownText = $null
+$script:asleep = $false; $script:seen = $true; $script:reminded = $true; $script:remindAt = 0; $script:frontAt = 0; $script:noticed = $false; $script:tuck = 0; $script:readAt = 0; $script:hover = $false; $script:active = 0; $script:wakeAt = -100; $script:shownAt = -1; $script:hideAt = -1; $script:shownText = $null
 
 function Pop([string]$text, [int]$holdFrames) {
   if ($text -ne $script:shownText -or $bubble.Visibility -ne 'Visible') {
@@ -195,12 +197,30 @@ function Read-State {
     if ($new -ne $script:state) {
       $script:state = $new; $script:since = $script:t; $script:active = $script:t
       switch ($new) {
-        'done' { Pop $script:text 110 }
+        'done' {
+          Pop $script:text 110
+          $script:seen = $false; $script:noticed = $false; $script:frontAt = 0; $script:reminded = $false; $script:remindAt = $script:t + $RemindAfter * 20
+        }
         default { $script:hideAt = $script:t }
       }
     }
     if ($script:hover -and $script:text) { Pop $script:text -1 }   # hovering keeps the text up
   } catch {}
+}
+
+# Is the Claude app the window in front right now?
+function Test-AppInFront {
+  $pid0 = [uint32]0
+  [void][ClawdWin]::GetWindowThreadProcessId([ClawdWin]::GetForegroundWindow(), [ref]$pid0)
+  try { return (Get-Process -Id $pid0 -ErrorAction Stop).ProcessName -eq $AppProcess } catch { return $false }
+}
+
+# The person has seen the result: back to everyday Clawd
+function Set-Seen {
+  $script:seen = $true
+  $script:state = 'idle'; $script:text = '摸鱼中～有事叫我'
+  $script:since = $script:t; $script:active = $script:t
+  if ($script:hover) { Pop $script:text -1 } else { $script:hideAt = $script:t }
 }
 
 function Frame {
@@ -217,6 +237,20 @@ function Frame {
   if ($isOver -and -not $script:hover) { if ($isAsleep) { Pop '呼噜…zzZ' -1 } elseif ($script:text) { Pop $script:text -1 } }
   if (-not $isOver -and $script:hover) { $script:hideAt = $t + 10 }
   $script:hover = $isOver
+
+  # Done: once the person is back in Claude, settle down; if not, remind them once
+  if ($script:state -eq 'done') {
+    if ($t - $script:frontAt -ge 5) {
+      $script:frontAt = $t
+      if (Test-AppInFront) { $script:noticed = $true } else { $script:noticed = $false }
+    }
+    $celebrating = ($t - $script:since) -lt 96
+    if ($script:noticed -and -not $celebrating) { Set-Seen }
+    elseif (-not $script:noticed -and -not $script:reminded -and $t -ge $script:remindAt) {
+      $script:reminded = $true; $script:since = $t
+      Pop $script:text 110
+    }
+  }
 
   $s = $script:state; $age = $t - $script:since
 
@@ -332,7 +366,7 @@ $pet.Add_MouseLeftButtonDown({
       $script:active = $script:t; $script:wakeAt = $script:t
       Pop '醒啦！' 30
     } else {
-      if ($script:state -eq 'done') { $script:hideAt = $script:t }
+      if ($script:state -eq 'done') { Set-Seen }
       Show-Claude
     }
   }
